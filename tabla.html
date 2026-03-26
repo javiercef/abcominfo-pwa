@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Visualizador - Inventarios</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Barra superior -->
+        <div class="barra-superior">
+            <a href="index.html" class="btn-volver">
+                ? Volver al menú
+            </a>
+            <h2 id="titulo-archivo" class="titulo-tabla">Cargando...</h2>
+            <button id="btn-refrescar" class="btn-refrescar" onclick="recargarDatos()">
+                ?? Refrescar
+            </button>
+        </div>
+
+        <!-- Contenedor de la tabla -->
+        <div id="contenedor-tabla" class="contenedor-tabla">
+            <div class="cargando">
+                <div class="spinner"></div>
+                <p>Cargando datos...</p>
+            </div>
+        </div>
+
+        <!-- Info de filas -->
+        <div class="info-filas" id="info-filas"></div>
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+        // Variables globales
+        let datosActuales = [];
+        let nombreArchivo = '';
+
+        // Obtener qué archivo mostrar desde la URL
+        const params = new URLSearchParams(window.location.search);
+        const sheet = params.get('sheet');
+        
+        // Configuración de URLs (¡CAMBIAR POR TUS URLs REALES!)
+        const configArchivos = {
+            inventario1: {
+                nombre: '?? Baterias Harris/Elbit',
+                // URL pública de Google Sheets como CSV
+                // CÓMO OBTENERLA: Abre tu hoja > Archivo > Compartir > Publicar en la web > Hoja completa > CSV
+                url: 'https://docs.google.com/spreadsheets/d/1903oP8mUH_kDIOYDWkwuUnkfVTwXNkre5ZlPpWOhybA/edit?usp=sharing',
+                tipo: 'google'
+            },
+            inventario2: {
+                nombre: '?? SRE 2405',
+                url: 'https://docs.google.com/spreadsheets/d/1yyd2dYpEXAxdZFlrhvwqLI_zJRZNfxwW/edit?usp=sharing&ouid=103574192075076384944&rtpof=true&sd=true',
+                tipo: 'google'
+            },
+            proton: {
+                nombre: '?? Proton Drive',
+                // Para Proton: necesitas compartir el archivo con enlace público
+                // El enlace debe terminar en .csv o ser descarga directa
+                url: 'https://drive.proton.me/urls/93HJ12PWBW#WApLqgz4Z4wo',
+                tipo: 'proton'
+            }
+        };
+
+        // Verificar si el archivo existe en la configuración
+        if (configArchivos[sheet]) {
+            nombreArchivo = configArchivos[sheet].nombre;
+            document.getElementById('titulo-archivo').textContent = nombreArchivo;
+            cargarDatos(configArchivos[sheet].url);
+        } else {
+            document.getElementById('contenedor-tabla').innerHTML = `
+                <div class="error">
+                    <div class="icono-error">??</div>
+                    <h3>Archivo no encontrado</h3>
+                    <p>El archivo solicitado no existe en la configuración.</p>
+                    <a href="index.html" class="btn-volver-tabla">Volver al inicio</a>
+                </div>
+            `;
+        }
+
+        // Función para recargar datos (se llama desde el botón)
+        window.recargarDatos = function() {
+            if (configArchivos[sheet]) {
+                cargarDatos(configArchivos[sheet].url);
+            }
+        };
+
+        async function cargarDatos(url) {
+            const contenedor = document.getElementById('contenedor-tabla');
+            contenedor.innerHTML = `
+                <div class="cargando">
+                    <div class="spinner"></div>
+                    <p>Cargando datos...</p>
+                </div>
+            `;
+
+            try {
+                // Agregar timestamp para evitar caché
+                const urlConTimestamp = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+                
+                const response = await fetch(urlConTimestamp);
+                
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                
+                const csvText = await response.text();
+                
+                // Parsear CSV a tabla
+                const tablaHTML = parseCSVToTable(csvText);
+                contenedor.innerHTML = tablaHTML;
+                
+                // Actualizar info de filas
+                const filas = csvText.trim().split('\n').length;
+                const columnas = csvText.trim().split('\n')[0]?.split(',').length || 0;
+                document.getElementById('info-filas').innerHTML = `
+                    ?? ${filas - 1} filas de datos · ${columnas} columnas
+                `;
+                
+            } catch (error) {
+                console.error('Error cargando datos:', error);
+                contenedor.innerHTML = `
+                    <div class="error">
+                        <div class="icono-error">?</div>
+                        <h3>Error al cargar los datos</h3>
+                        <p>${error.message}</p>
+                        <p class="error-sugerencia">Verifica que el enlace del archivo sea público y accesible.</p>
+                        <button onclick="recargarDatos()" class="btn-reintentar">Intentar nuevamente</button>
+                    </div>
+                `;
+            }
+        }
+
+        function parseCSVToTable(csvText) {
+            // Parseo básico de CSV (considera comillas)
+            const lineas = csvText.trim().split('\n');
+            if (lineas.length === 0) return '<p>Archivo vacío</p>';
+            
+            // Obtener encabezados
+            const encabezados = parseCSVLine(lineas[0]);
+            
+            let tablaHTML = '<div class="tabla-responsive"><table class="tabla-datos">';
+            
+            // Encabezados
+            tablaHTML += '<thead><tr>';
+            encabezados.forEach(enc => {
+                tablaHTML += `<th>${escapeHTML(enc)}</th>`;
+            });
+            tablaHTML += '</tr></thead>';
+            
+            // Cuerpo
+            tablaHTML += '<tbody>';
+            for (let i = 1; i < lineas.length; i++) {
+                if (lineas[i].trim() === '') continue;
+                const columnas = parseCSVLine(lineas[i]);
+                tablaHTML += '<tr>';
+                columnas.forEach(col => {
+                    tablaHTML += `<td>${escapeHTML(col)}</td>`;
+                });
+                // Si faltan columnas, agregar celdas vacías
+                if (columnas.length < encabezados.length) {
+                    for (let j = columnas.length; j < encabezados.length; j++) {
+                        tablaHTML += '<td></td>';
+                    }
+                }
+                tablaHTML += '</tr>';
+            }
+            tablaHTML += '</tbody></table></div>';
+            
+            return tablaHTML;
+        }
+
+        function parseCSVLine(linea) {
+            const resultado = [];
+            let enComillas = false;
+            let valorActual = '';
+            
+            for (let i = 0; i < linea.length; i++) {
+                const char = linea[i];
+                
+                if (char === '"') {
+                    enComillas = !enComillas;
+                } else if (char === ',' && !enComillas) {
+                    resultado.push(valorActual.trim());
+                    valorActual = '';
+                } else {
+                    valorActual += char;
+                }
+            }
+            resultado.push(valorActual.trim());
+            
+            return resultado;
+        }
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+    </script>
+</body>
+</html>
